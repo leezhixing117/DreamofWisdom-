@@ -19,6 +19,12 @@ model = genai.GenerativeModel(
     system_instruction=SYSTEM_PROMPT
 )
 
+# ========== 新增健康檢查路由（放喺外面！）==========
+@app.route("/health", methods=["GET"])
+def health():
+    return jsonify({"status": "ok"})
+
+# 你原本嘅解夢接口，路徑係 /dream，唔係 /interpret！！！
 @app.route("/dream", methods=["POST"])
 def dream_analysis():
     data = request.get_json()
@@ -30,6 +36,3 @@ def dream_analysis():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
-    @app.get("/health")
-def health():
-    return {"status": "ok"}
