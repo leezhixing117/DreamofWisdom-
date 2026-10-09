@@ -1,8 +1,10 @@
 from flask import Flask, request, jsonify
+from flask_cors import CORS
 import google.generativeai as genai
 import os
 
 app = Flask(__name__)
+CORS(app)  # 開放跨域，本地前端測試用
 
 # 讀取環境變數 GEMINI_API_KEY
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
@@ -19,12 +21,11 @@ model = genai.GenerativeModel(
     system_instruction=SYSTEM_PROMPT
 )
 
-# ========== 新增健康檢查路由（放喺外面！）==========
-@app.route("/health", methods=["GET"])
+# 健康檢查路由，瀏覽器直接打開就能確認API活著
+@app.route("/", methods=["GET"])
 def health():
-    return jsonify({"status": "ok"})
+    return jsonify({"status":"ok"})
 
-# 你原本嘅解夢接口，路徑係 /dream，唔係 /interpret！！！
 @app.route("/dream", methods=["POST"])
 def dream_analysis():
     data = request.get_json()
@@ -36,3 +37,6 @@ def dream_analysis():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+    @app.route('/')
+def index():
+    return "Dream API is running ✅"
