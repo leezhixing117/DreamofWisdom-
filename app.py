@@ -1,22 +1,22 @@
 import os
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-import google.generativeai as genai
+import requests
 
 app = Flask(__name__)
 # 允許前端域名
 CORS(app, origins=["https://dreamofwisdom.onrender.com", "https://dreamofwisdom.com"])
 
 # 讀取Gemini金鑰
-genai.configure(api_key=os.environ.get("GEMINI_API_KEY"))
-model = genai.GenerativeModel('gemini-3.8-flash')
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+API_URL = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
 
 # GET根路徑，Render健康檢查
 @app.route('/', methods=['GET'])
 def index():
     return "DreamWisdom API Ready"
 
-# POST根路徑，深度解夢接口，直接POST https://dreamofwisdom.com
+# POST根路徑，深度解夢接口
 @app.route('/', methods=['POST'])
 def deep_dream():
     try:
@@ -42,14 +42,37 @@ def deep_dream():
 3. 邏輯順暢，行文自然，唔使用列表
 4. 結尾可以給溫和嘅自我反思提示
 """
-        response = model.generate_content(prompt)
-        if not response or not response.text:
-            return jsonify({"error": "Gemini 未能產生內容"}),500
+        payload = {
+            "contents": [{"parts": [{"text": prompt}]}]
+        }
+        res = requests.post(API_URL, json=payload, timeout=30)
+
+        # 分類處理Gemini錯誤碼
+        if res.status_code == 401:
+            return jsonify({
+                "success": False,
+                "error": "API金鑰認證失敗，請聯絡管理員"
+            }), 401
+        if res.status_code == 429:
+            return jsonify({
+                "success": False,
+                "error": "今日AI配額已用盡，請稍後再試"
+            }), 429
+
+        res.raise_for_status()
+        result_json = res.json()
+        output_text = result_json["candidates"][0]["content"]["parts"][0]["text"]
+
         return jsonify({
             "success": True,
-            "deep_result": response.text
+            "deep_result": output_text
         })
 
+    except requests.exceptions.Timeout:
+        return jsonify({
+            "success": False,
+            "error": "請求超時，網絡延遲，請重新嘗試"
+        }), 504
     except Exception as err:
         return jsonify({
             "success": False,
@@ -77,11 +100,24 @@ def dream_analysis():
 2. 夢境結局：{q2}
 3. 環境感覺：{q3}
 """
-        response = model.generate_content(prompt)
-        if not response or not response.text:
-            return jsonify({"error": "Gemini 未能產生內容"}),500
-        return jsonify({"deep_analysis": response.text})
+        payload = {
+            "contents": [{"parts": [{"text": prompt}]}]
+        }
+        res = requests.post(API_URL, json=payload, timeout=30)
 
+        if res.status_code == 401:
+            return jsonify({"error": "API金鑰認證失敗，請聯絡管理員"}), 401
+        if res.status_code == 429:
+            return jsonify({"error": "今日AI配額已用盡，請稍後再試"}), 429
+
+        res.raise_for_status()
+        result_json = res.json()
+        output_text = result_json["candidates"][0]["content"]["parts"][0]["text"]
+
+        return jsonify({"deep_analysis": output_text})
+
+    except requests.exceptions.Timeout:
+        return jsonify({"error": "請求超時，網絡延遲，請重新嘗試"}), 504
     except Exception as err:
         return jsonify({"error": str(err)}), 500
 
