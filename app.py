@@ -9,13 +9,14 @@ CORS(app, origins=["https://dreamofwisdom.onrender.com"])
 
 # 讀取環境變數嘅 Gemini API Key
 genai.configure(api_key=os.environ.get("GEMINI_API_KEY"))
-# 更新為可用模型 gemini-3.8-flash
-model = genai.GenerativeModel('models/gemini-3.8-flash')
+# 使用 gemini-3.8-flash
+model = genai.GenerativeModel('gemini-3.8-flash')
 
 @app.route('/')
 def index():
     return "DreamWisdom API Ready"
 
+# 舊路由，保留備用，前端唔呼叫佢就唔會執行
 @app.route('/dream_analysis', methods=['POST'])
 def dream_analysis():
     try:
@@ -28,6 +29,7 @@ def dream_analysis():
 
         prompt = f"""
 你係專業解夢師，結合心理學理論，根據以下資料寫詳細解夢，字數300–500字，繁體中文。
+要求：唔好重複簡單解夢原文，深入解讀潛意識、內在情緒，行文自然唔好用列表，結尾加溫和反思提示。
 夢境內容：{dream_content}
 初步簡單解夢：{simple_analysis}
 補充問題：
@@ -36,10 +38,53 @@ def dream_analysis():
 3. 環境感覺：{q3}
 """
         response = model.generate_content(prompt)
+        if not response or not response.text:
+            return jsonify({"error": "Gemini 未能產生內容"}),500
         return jsonify({"deep_analysis": response.text})
 
     except Exception as err:
         return jsonify({"error": str(err)}), 500
 
+# 【新路由，而家前端真正會呼叫呢個】
+@app.route('/deep_dream', methods=['POST'])
+def deep_dream():
+    try:
+        data = request.get_json()
+        simple_analysis = data.get("simple_analysis", "")
+        q1 = data.get("q1", "")
+        q2 = data.get("q2", "")
+        q3 = data.get("q3", "")
+
+        prompt = f"""
+你係專業解夢師，結合心理學理論做深度詳細解夢，字數嚴格控制300–500字，語氣細緻易懂，使用繁體中文。
+資料：
+【第一步簡單解夢內容】
+{simple_analysis}
+【三條補充問題回覆】
+1. 你係旁觀者，定親身參與夢中事件：{q1}
+2. 夢境結束時，有冇明確結局，定突然中斷：{q2}
+3. 夢入面環境感覺熟悉定陌生：{q3}
+
+要求：
+1. 唔好直接重複簡單解夢原文，要做更深層次潛意識解讀
+2. 著重夢入面嘅情緒、內在壓力、內心渴望、潛藏訊息
+3. 邏輯順暢，行文自然，唔使用列表
+4. 結尾可以給溫和嘅自我反思提示
+"""
+        response = model.generate_content(prompt)
+        if not response or not response.text:
+            return jsonify({"error": "Gemini 未能產生內容"}),500
+        return jsonify({
+            "success": True,
+            "deep_result": response.text
+        })
+
+    except Exception as err:
+        return jsonify({
+            "success": False,
+            "error": f"伺服器錯誤：{str(err)}"
+        }), 500
+
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)
