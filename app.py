@@ -5,48 +5,20 @@ import google.generativeai as genai
 
 app = Flask(__name__)
 # 只允許你前端網站存取
-CORS(app, origins=["https://dreamofwisdom.onrender.com"])
+CORS(app, origins=["https://dreamofwisdom.onrender.com", "https://dreamofwisdom.com"])
 
 # 讀取環境變數嘅 Gemini API Key
 genai.configure(api_key=os.environ.get("GEMINI_API_KEY"))
 # 使用 gemini-3.8-flash
 model = genai.GenerativeModel('gemini-3.8-flash')
 
-@app.route('/')
+# GET 訪問根網址：健康檢查，Render用
+@app.route('/', methods=['GET'])
 def index():
     return "DreamWisdom API Ready"
 
-# 舊路由，保留備用，前端唔呼叫佢就唔會執行
-@app.route('/dream_analysis', methods=['POST'])
-def dream_analysis():
-    try:
-        data = request.get_json()
-        dream_content = data.get("dream_content", "")
-        simple_analysis = data.get("simple_analysis", "")
-        q1 = data.get("q1", "")
-        q2 = data.get("q2", "")
-        q3 = data.get("q3", "")
-
-        prompt = f"""
-你係專業解夢師，結合心理學理論，根據以下資料寫詳細解夢，字數300–500字，繁體中文。
-要求：唔好重複簡單解夢原文，深入解讀潛意識、內在情緒，行文自然唔好用列表，結尾加溫和反思提示。
-夢境內容：{dream_content}
-初步簡單解夢：{simple_analysis}
-補充問題：
-1. 你係旁觀者定親身參與：{q1}
-2. 夢境結局：{q2}
-3. 環境感覺：{q3}
-"""
-        response = model.generate_content(prompt)
-        if not response or not response.text:
-            return jsonify({"error": "Gemini 未能產生內容"}),500
-        return jsonify({"deep_analysis": response.text})
-
-    except Exception as err:
-        return jsonify({"error": str(err)}), 500
-
-# 【新路由，而家前端真正會呼叫呢個】
-@app.route('/deep_dream', methods=['POST'])
+# POST 訪問根網址：真正深度解夢接口，網址直接用 https://dreamofwisdom.com
+@app.route('/', methods=['POST'])
 def deep_dream():
     try:
         data = request.get_json()
@@ -84,6 +56,35 @@ def deep_dream():
             "success": False,
             "error": f"伺服器錯誤：{str(err)}"
         }), 500
+
+# 舊路由，保留備用，唔會主動使用
+@app.route('/dream_analysis', methods=['POST'])
+def dream_analysis():
+    try:
+        data = request.get_json()
+        dream_content = data.get("dream_content", "")
+        simple_analysis = data.get("simple_analysis", "")
+        q1 = data.get("q1", "")
+        q2 = data.get("q2", "")
+        q3 = data.get("q3", "")
+
+        prompt = f"""
+你係專業解夢師，結合心理學理論，根據以下資料寫詳細解夢，字數300–500字，繁體中文。
+要求：唔好重複簡單解夢原文，深入解讀潛意識、內在情緒，行文自然唔好用列表，結尾加溫和反思提示。
+夢境內容：{dream_content}
+初步簡單解夢：{simple_analysis}
+補充問題：
+1. 你係旁觀者定親身參與：{q1}
+2. 夢境結局：{q2}
+3. 環境感覺：{q3}
+"""
+        response = model.generate_content(prompt)
+        if not response or not response.text:
+            return jsonify({"error": "Gemini 未能產生內容"}),500
+        return jsonify({"deep_analysis": response.text})
+
+    except Exception as err:
+        return jsonify({"error": str(err)}), 500
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
