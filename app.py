@@ -51,6 +51,11 @@ def deep_dream():
         res = requests.post(API_URL, json=payload, timeout=30)
 
         # 分類處理Gemini錯誤碼
+        if res.status_code == 400:
+            return jsonify({
+                "success": False,
+                "error": "Gemini請求參數錯誤，模型/授權異常"
+            }), 400
         if res.status_code == 401:
             return jsonify({
                 "success": False,
@@ -64,6 +69,13 @@ def deep_dream():
 
         res.raise_for_status()
         result_json = res.json()
+        # 防崩檢查：確保有候選回覆
+        if not result_json.get("candidates") or len(result_json["candidates"]) == 0:
+            return jsonify({
+                "success": False,
+                "error": "Gemini冇返回有效內容"
+            }), 500
+            
         output_text = result_json["candidates"][0]["content"]["parts"][0]["text"]
 
         return jsonify({
@@ -108,6 +120,8 @@ def dream_analysis():
         }
         res = requests.post(API_URL, json=payload, timeout=30)
 
+        if res.status_code == 400:
+            return jsonify({"error": "Gemini請求參數錯誤，模型/授權異常"}), 400
         if res.status_code == 401:
             return jsonify({"error": "API金鑰認證失敗，請聯絡管理員"}), 401
         if res.status_code == 429:
@@ -115,6 +129,9 @@ def dream_analysis():
 
         res.raise_for_status()
         result_json = res.json()
+        if not result_json.get("candidates") or len(result_json["candidates"]) == 0:
+            return jsonify({"error": "Gemini冇返回有效內容"}), 500
+            
         output_text = result_json["candidates"][0]["content"]["parts"][0]["text"]
 
         return jsonify({"deep_analysis": output_text})
