@@ -6,7 +6,7 @@ from flask_cors import CORS
 import requests
 
 app = Flask(__name__)
-# 更新CORS，只開放正式網站（www同非www）
+# CORS 維持正式域名，唔改
 CORS(app, origins=[
     "https://dreamofwisdom.com",
     "https://www.dreamofwisdom.com"
@@ -26,6 +26,7 @@ def index():
 def deep_dream():
     try:
         data = request.get_json()
+        dream_content = data.get("dream_content", "")
         simple_analysis = data.get("simple_analysis", "")
         q1 = data.get("q1", "")
         q2 = data.get("q2", "")
@@ -35,6 +36,8 @@ def deep_dream():
         prompt = f"""
 你係一位像好友一樣陪伴嘅夢境治療同行者，語氣溫柔貼地，唔好太學術化。
 參考以下全部資料去解讀呢個夢：
+【夢境原文】
+{dream_content}
 【初步簡單解夢】
 {simple_analysis}
 【夢境三條問題回覆】
@@ -45,7 +48,7 @@ def deep_dream():
 {past_records}
 
 解讀指引：
-1. 結合今次夢境同過往記錄，觀察內心狀態嘅連續變化，像同行者一樣傾計式解釋。
+1. 優先以夢境原文作核心，結合今次夢境同過往記錄，觀察內心狀態嘅連續變化，像同行者一樣傾計式解釋。
 2. 唔好直接抄寫初步解夢內容，往更深層嘅感受、內心渴望同壓力去挖掘。
 3. 最後提出一項簡單、可即日執行嘅日常生活小建議，幫助用戶連接夢境同現實生活。
 4. 結尾輕輕鼓勵繼續記錄夢，建立習慣，吸引用戶每日回來記夢。
@@ -129,7 +132,7 @@ def dream_analysis():
 {past_records}
 
 解讀指引：
-1. 結合今次夢境同過往記錄，觀察內心狀態嘅連續變化，像同行者一樣傾計式解釋。
+1. 優先以夢境原文作核心，結合今次夢境同過往記錄，觀察內心狀態嘅連續變化，像同行者一樣傾計式解釋。
 2. 唔好直接抄寫初步解夢內容，往更深層嘅感受、內心渴望同壓力去挖掘。
 3. 最後提出一項簡單、可即日執行嘅日常生活小建議，幫助用戶連接夢境同現實生活。
 4. 結尾輕輕鼓勵繼續記錄夢，建立習慣，吸引用戶每日回來記夢。
