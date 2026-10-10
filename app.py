@@ -10,14 +10,14 @@ CORS(app, origins=[
     "https://www.dreamofwisdom.com"
 ])
 
-# 讀取Gemini金鑰（Render環境變數）
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
-API_URL = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
+# 讀取DeepSeek金鑰（Render環境變數）
+DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY")
+API_URL = "https://api.deepseek.com/v1/chat/completions"
 
 # GET根路徑，Render健康檢查
 @app.route('/', methods=['GET'])
 def index():
-    return "DreamWisdom API Ready"
+    return "DreamWisdom DeepSeek API Ready"
 
 # POST根路徑，深度解夢接口
 @app.route('/', methods=['POST'])
@@ -46,15 +46,23 @@ def deep_dream():
 4. 結尾可以給溫和嘅自我反思提示
 """
         payload = {
-            "contents": [{"parts": [{"text": prompt}]}]
+            "model": "deepseek-flash",
+            "messages": [
+                {"role": "user", "content": prompt}
+            ],
+            "temperature": 0.7
         }
-        res = requests.post(API_URL, json=payload, timeout=30)
+        headers = {
+            "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
+            "Content-Type": "application/json"
+        }
+        res = requests.post(API_URL, headers=headers, json=payload, timeout=30)
 
-        # 分類處理Gemini錯誤碼
+        # DeepSeek錯誤碼處理
         if res.status_code == 400:
             return jsonify({
                 "success": False,
-                "error": "Gemini請求參數錯誤，模型/授權異常"
+                "error": "DeepSeek請求參數錯誤"
             }), 400
         if res.status_code == 401:
             return jsonify({
@@ -69,14 +77,7 @@ def deep_dream():
 
         res.raise_for_status()
         result_json = res.json()
-        # 防崩檢查：確保有候選回覆
-        if not result_json.get("candidates") or len(result_json["candidates"]) == 0:
-            return jsonify({
-                "success": False,
-                "error": "Gemini冇返回有效內容"
-            }), 500
-            
-        output_text = result_json["candidates"][0]["content"]["parts"][0]["text"]
+        output_text = result_json["choices"][0]["message"]["content"]
 
         return jsonify({
             "success": True,
@@ -116,12 +117,20 @@ def dream_analysis():
 3. 環境感覺：{q3}
 """
         payload = {
-            "contents": [{"parts": [{"text": prompt}]}]
+            "model": "deepseek-flash",
+            "messages": [
+                {"role": "user", "content": prompt}
+            ],
+            "temperature": 0.7
         }
-        res = requests.post(API_URL, json=payload, timeout=30)
+        headers = {
+            "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
+            "Content-Type": "application/json"
+        }
+        res = requests.post(API_URL, headers=headers, json=payload, timeout=30)
 
         if res.status_code == 400:
-            return jsonify({"error": "Gemini請求參數錯誤，模型/授權異常"}), 400
+            return jsonify({"error": "DeepSeek請求參數錯誤"}), 400
         if res.status_code == 401:
             return jsonify({"error": "API金鑰認證失敗，請聯絡管理員"}), 401
         if res.status_code == 429:
@@ -129,10 +138,7 @@ def dream_analysis():
 
         res.raise_for_status()
         result_json = res.json()
-        if not result_json.get("candidates") or len(result_json["candidates"]) == 0:
-            return jsonify({"error": "Gemini冇返回有效內容"}), 500
-            
-        output_text = result_json["candidates"][0]["content"]["parts"][0]["text"]
+        output_text = result_json["choices"][0]["message"]["content"]
 
         return jsonify({"deep_analysis": output_text})
 
