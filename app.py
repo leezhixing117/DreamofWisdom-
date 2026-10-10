@@ -4,10 +4,13 @@ from flask_cors import CORS
 import requests
 
 app = Flask(__name__)
-# 允許前端域名
-CORS(app, origins=["https://dreamofwisdom.onrender.com", "https://dreamofwisdom.com"])
+# 更新CORS，只開放正式網站（www同非www）
+CORS(app, origins=[
+    "https://dreamofwisdom.com",
+    "https://www.dreamofwisdom.com"
+])
 
-# 讀取Gemini金鑰
+# 讀取Gemini金鑰（Render環境變數）
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 API_URL = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
 
