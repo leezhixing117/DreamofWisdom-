@@ -4,20 +4,19 @@ from flask_cors import CORS
 import google.generativeai as genai
 
 app = Flask(__name__)
-# 只允許你前端網站存取
+# 允許前端域名
 CORS(app, origins=["https://dreamofwisdom.onrender.com", "https://dreamofwisdom.com"])
 
-# 讀取環境變數嘅 Gemini API Key
+# 讀取Gemini金鑰
 genai.configure(api_key=os.environ.get("GEMINI_API_KEY"))
-# 使用 gemini-3.8-flash
 model = genai.GenerativeModel('gemini-3.8-flash')
 
-# GET 訪問根網址：健康檢查，Render用
+# GET根路徑，Render健康檢查
 @app.route('/', methods=['GET'])
 def index():
     return "DreamWisdom API Ready"
 
-# POST 訪問根網址：真正深度解夢接口，網址直接用 https://dreamofwisdom.com
+# POST根路徑，深度解夢接口，直接POST https://dreamofwisdom.com
 @app.route('/', methods=['POST'])
 def deep_dream():
     try:
@@ -57,7 +56,7 @@ def deep_dream():
             "error": f"伺服器錯誤：{str(err)}"
         }), 500
 
-# 舊路由，保留備用，唔會主動使用
+# 舊路由保留備用
 @app.route('/dream_analysis', methods=['POST'])
 def dream_analysis():
     try:
