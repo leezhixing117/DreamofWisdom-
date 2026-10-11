@@ -4,34 +4,46 @@ import os
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import requests
+from pymongo import MongoClient
+from datetime import datetime
 
 app = Flask(__name__)
-# CORS 維持正式域名，唔改
+# CORS 維持正式域名
 CORS(app, origins=[
     "https://dreamofwisdom.com",
     "https://www.dreamofwisdom.com"
 ])
 
-# 讀取DeepSeek金鑰（Render環境變數）
+# 讀取環境變數
 DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY")
 API_URL = "https://api.deepseek.com/v1/chat/completions"
+MONGODB_URI = os.environ.get("MONGODB_URI")
 
-# GET根路徑，Render健康檢查
+# 連接MongoDB
+client = MongoClient(MONGODB_URI)
+db = client["dreamofwisdom_db"]
+dream_collection = db["dream_records"]
+
+# GET健康檢查
 @app.route('/', methods=['GET'])
 def index():
     return "DreamWisdom DeepSeek API Ready"
 
-# POST根路徑，深度解夢接口
+# POST 深度解夢主接口（解夢 + 自動存入資料庫）
 @app.route('/', methods=['POST'])
 def deep_dream():
     try:
         data = request.get_json()
+        user_id = data.get("user_id", "")
         dream_content = data.get("dream_content", "")
         simple_analysis = data.get("simple_analysis", "")
         q1 = data.get("q1", "")
         q2 = data.get("q2", "")
         q3 = data.get("q3", "")
         past_records = data.get("past_records", "暫無過往記錄")
+
+        if not user_id:
+            return jsonify({"success":False,"error":"缺少user_id"}),400
 
         prompt = f"""
 你係一位像好友一樣陪伴嘅夢境治療同行者，語氣溫柔貼地，唔好太學術化。
@@ -68,7 +80,6 @@ def deep_dream():
         }
         res = requests.post(API_URL, headers=headers, json=payload, timeout=30)
 
-        # DeepSeek錯誤碼處理
         if res.status_code == 400:
             return jsonify({
                 "success": False,
@@ -87,11 +98,24 @@ def deep_dream():
 
         res.raise_for_status()
         result_json = res.json()
-        output_text = result_json["choices"][0]["message"]["content"]
+        deep_result = result_json["choices"][0]["message"]["content"]
+
+        # 存入MongoDB
+        dream_record = {
+            "user_id": user_id,
+            "dream_content": dream_content,
+            "simple_analysis": simple_analysis,
+            "q1": q1,
+            "q2": q2,
+            "q3": q3,
+            "deep_result": deep_result,
+            "created_at": datetime.utcnow()
+        }
+        dream_collection.insert_one(dream_record)
 
         return jsonify({
             "success": True,
-            "deep_result": output_text
+            "deep_result": deep_result
         })
 
     except requests.exceptions.Timeout:
@@ -110,12 +134,16 @@ def deep_dream():
 def dream_analysis():
     try:
         data = request.get_json()
+        user_id = data.get("user_id", "")
         dream_content = data.get("dream_content", "")
         simple_analysis = data.get("simple_analysis", "")
         q1 = data.get("q1", "")
         q2 = data.get("q2", "")
         q3 = data.get("q3", "")
         past_records = data.get("past_records", "暫無過往記錄")
+
+        if not user_id:
+            return jsonify({"error":"缺少user_id"}),400
 
         prompt = f"""
 你係一位像好友一樣陪伴嘅夢境治療同行者，語氣溫柔貼地，唔好太學術化。
@@ -161,14 +189,44 @@ def dream_analysis():
 
         res.raise_for_status()
         result_json = res.json()
-        output_text = result_json["choices"][0]["message"]["content"]
+        deep_result = result_json["choices"][0]["message"]["content"]
 
-        return jsonify({"deep_analysis": output_text})
+        # 存入MongoDB
+        dream_record = {
+            "user_id": user_id,
+            "dream_content": dream_content,
+            "simple_analysis": simple_analysis,
+            "q1": q1,
+            "q2": q2,
+            "q3": q3,
+            "deep_result": deep_result,
+            "created_at": datetime.utcnow()
+        }
+        dream_collection.insert_one(dream_record)
+
+        return jsonify({"deep_analysis": deep_result})
 
     except requests.exceptions.Timeout:
         return jsonify({"error": "請求超時，網絡延遲，請重新嘗試"}), 504
     except Exception as err:
         return jsonify({"error": str(err)}), 500
+
+# 【新接口】讀取某用戶所有夢境記錄（用於生成past_records）
+@app.route('/get_dream_records', methods=['GET'])
+def get_dream_records():
+    user_id = request.args.get("user_id")
+    if not user_id:
+        return jsonify({"success":False,"error":"缺少user_id"}),400
+    records = list(dream_collection.find({"user_id":user_id}).sort("created_at",-1))
+    # 轉換ObjectId同日期為字串
+    output = []
+    for r in records:
+        output.append({
+            "dream_content": r["dream_content"],
+            "deep_result": r["deep_result"],
+            "created_at": r["created_at"].strftime("%Y-%m-%d %H:%M")
+        })
+    return jsonify({"success":True,"records":output})
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
