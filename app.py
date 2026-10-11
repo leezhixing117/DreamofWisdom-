@@ -56,7 +56,7 @@ def deep_dream():
 6. 總字數嚴格維持300–500字，行文自然，唔使用列表。
 """
         payload = {
-            "model": "deepseek-flash",
+            "model": "deepseek-chat",
             "messages": [
                 {"role": "user", "content": prompt}
             ],
@@ -140,7 +140,7 @@ def dream_analysis():
 6. 總字數嚴格維持300–500字，行文自然，唔使用列表。
 """
         payload = {
-            "model": "deepseek-flash",
+            "model": "deepseek-chat",
             "messages": [
                 {"role": "user", "content": prompt}
             ],
