@@ -1,6 +1,8 @@
 import sys
 sys.stdout.reconfigure(encoding='utf-8')
 import os
+import jwt
+import uuid
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import requests
@@ -18,6 +20,7 @@ CORS(app, origins=[
 DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY")
 API_URL = "https://api.deepseek.com/v1/chat/completions"
 MONGODB_URI = os.environ.get("MONGODB_URI")
+JWT_SECRET = os.environ.get("JWT_SECRET")
 
 # 連接MongoDB
 client = MongoClient(MONGODB_URI)
@@ -211,7 +214,7 @@ def dream_analysis():
     except Exception as err:
         return jsonify({"error": str(err)}), 500
 
-# 【新接口】讀取某用戶所有夢境記錄（用於生成past_records）
+# 【舊接口】讀取某用戶所有夢境記錄（用於生成past_records）
 @app.route('/get_dream_records', methods=['GET'])
 def get_dream_records():
     user_id = request.args.get("user_id")
@@ -227,6 +230,131 @@ def get_dream_records():
             "created_at": r["created_at"].strftime("%Y-%m-%d %H:%M")
         })
     return jsonify({"success":True,"records":output})
+
+
+# ============ 全新 JWT 認證夢境API (對接dreamApi.js) ============
+# POST /api/dream-record 新增儲存夢境紀錄
+@app.route('/api/dream-record', methods=['POST'])
+def save_dream_record():
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        return jsonify({"success": False, "message": "未提供登入憑證"}), 401
+    token = auth_header.split(" ")[1]
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
+        user_id = payload["userId"]
+    except jwt.InvalidTokenError:
+        return jsonify({"success": False, "message": "憑證無效或已過期"}), 401
+
+    data = request.get_json()
+    dream_id = f"dream_{uuid.uuid4().hex}"
+    record = {
+        "id": dream_id,
+        "user_id": user_id,
+        "title": data.get("title", ""),
+        "dream_content": data.get("dream_content", ""),
+        "simple_analysis": data.get("simple_analysis", ""),
+        "deep_result": data.get("deep_result", ""),
+        "category": data.get("category", "普通夢境"),
+        "tags": data.get("tags", []),
+        "created_at": datetime.utcnow()
+    }
+    dream_collection.insert_one(record)
+    return jsonify({"success": True, "dream": record}), 201
+
+
+# GET /api/dream-records 讀取登入用戶全部夢境
+@app.route('/api/dream-records', methods=['GET'])
+def get_all_dream_records():
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        return jsonify({"success": False, "message": "未提供登入憑證"}), 401
+    token = auth_header.split(" ")[1]
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
+        user_id = payload["userId"]
+    except jwt.InvalidTokenError:
+        return jsonify({"success": False, "message": "憑證無效或已過期"}), 401
+
+    records = list(dream_collection.find({"user_id": user_id}).sort("created_at", -1))
+    res_list = []
+    for item in records:
+        res_list.append({
+            "id": item["id"],
+            "title": item.get("title", ""),
+            "dream_content": item["dream_content"],
+            "simple_analysis": item.get("simple_analysis", ""),
+            "deep_result": item.get("deep_result", ""),
+            "category": item.get("category", "普通夢境"),
+            "tags": item.get("tags", []),
+            "created_at": item["created_at"].isoformat()
+        })
+    return jsonify({"success": True, "records": res_list})
+
+
+# DELETE /api/dream-record/<dream_id> 刪除夢境紀錄
+@app.route('/api/dream-record/<dream_id>', methods=['DELETE'])
+def delete_dream_record(dream_id):
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        return jsonify({"success": False, "message": "未提供登入憑證"}), 401
+    token = auth_header.split(" ")[1]
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
+        user_id = payload["userId"]
+    except jwt.InvalidTokenError:
+        return jsonify({"success": False, "message": "憑證無效或已過期"}), 401
+
+    try:
+        result = dream_collection.delete_one({
+            "id": dream_id,
+            "user_id": user_id
+        })
+        if result.deleted_count == 0:
+            return jsonify({"success": False, "message": "找不到夢境記錄或者無權限刪除"}), 404
+        return jsonify({"success": True, "message": "夢境記錄已刪除"}), 200
+    except Exception as e:
+        print("刪除夢境錯誤：", str(e))
+        return jsonify({"success": False, "message": "伺服器刪除失敗"}), 500
+
+
+# PUT /api/dream-record/<dream_id>/tags 更新夢境標籤tags
+@app.route('/api/dream-record/<dream_id>/tags', methods=['PUT'])
+def update_dream_tags(dream_id):
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        return jsonify({"success": False, "message": "未提供登入憑證"}), 401
+    token = auth_header.split(" ")[1]
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
+        user_id = payload["userId"]
+    except jwt.InvalidTokenError:
+        return jsonify({"success": False, "message": "憑證無效或已過期"}), 401
+
+    data = request.get_json()
+    new_tags = data.get("tags", [])
+    if not isinstance(new_tags, list):
+        return jsonify({"success": False, "message": "標籤格式錯誤，必須為陣列"}), 400
+
+    try:
+        result = dream_collection.update_one(
+            {
+                "id": dream_id,
+                "user_id": user_id
+            },
+            {
+                "$set": {
+                    "tags": new_tags
+                }
+            }
+        )
+        if result.matched_count == 0:
+            return jsonify({"success": False, "message": "找不到夢境記錄或者無權限修改"}), 404
+        return jsonify({"success": True, "message": "標籤更新成功"}), 200
+    except Exception as e:
+        print("更新標籤錯誤：", str(e))
+        return jsonify({"success": False, "message": "更新標籤失敗"}), 500
+
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
