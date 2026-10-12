@@ -3,11 +3,12 @@ sys.stdout.reconfigure(encoding='utf-8')
 import os
 import jwt
 import uuid
+import random
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import requests
 from pymongo import MongoClient
-from datetime import datetime
+from datetime import datetime, timedelta
 
 app = Flask(__name__)
 # CORS 維持正式域名
@@ -21,11 +22,17 @@ DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY")
 API_URL = "https://api.deepseek.com/v1/chat/completions"
 MONGODB_URI = os.environ.get("MONGODB_URI")
 JWT_SECRET = os.environ.get("JWT_SECRET")
+# 郵件發送用（使用mailgun / 可替換其他smtp，你後續填環境變數）
+MAIL_FROM = os.environ.get("MAIL_FROM")
+MAILGUN_API_KEY = os.environ.get("MAILGUN_API_KEY")
+MAILGUN_DOMAIN = os.environ.get("MAILGUN_DOMAIN")
 
 # 連接MongoDB
 client = MongoClient(MONGODB_URI)
 db = client["dreamofwisdom_db"]
 dream_collection = db["dream_records"]
+user_collection = db["members"]
+verify_collection = db["email_verify_codes"]
 
 # GET健康檢查
 @app.route('/', methods=['GET'])
@@ -354,6 +361,144 @@ def update_dream_tags(dream_id):
     except Exception as e:
         print("更新標籤錯誤：", str(e))
         return jsonify({"success": False, "message": "更新標籤失敗"}), 500
+
+
+# ====================== 會員 AUTH 全套接口 ======================
+import hashlib
+def hash_password(raw_pw):
+    return hashlib.sha256(raw_pw.encode("utf-8")).hexdigest()
+
+# 寄驗證碼函數（Mailgun）
+def send_email(to_email, subject, body):
+    if not MAILGUN_API_KEY or not MAILGUN_DOMAIN:
+        return False
+    url = f"https://api.mailgun.net/v3/{MAILGUN_DOMAIN}/messages"
+    auth_data = ("api", MAILGUN_API_KEY)
+    data = {
+        "from": MAIL_FROM,
+        "to": to_email,
+        "subject": subject,
+        "text": body
+    }
+    r = requests.post(url, auth=auth_data, data=data)
+    return r.status_code == 200
+
+# 1. POST /api/auth/send-code 發送註冊驗證碼
+@app.route("/api/auth/send-code", methods=["POST"])
+def send_register_code():
+    data = request.get_json()
+    email = data.get("email", "").strip().lower()
+    if not email:
+        return jsonify({"success":False, "message":"請輸入電郵"}),400
+    # 6位數驗證碼
+    code = ''.join(random.choices("0123456789", k=6))
+    expire_at = datetime.utcnow() + timedelta(minutes=15)
+    # 覆蓋舊同email驗證紀錄
+    verify_collection.update_one({"email":email}, {"$set":{"code":code,"expire_at":expire_at}}, upsert=True)
+    email_body = f"""Dream of Wisdom 夢境網站 註冊驗證碼
+你的驗證碼：{code}
+有效期15分鐘，請不要分享給其他人。"""
+    ok = send_email(email, "DreamofWisdom 帳戶驗證碼", email_body)
+    if not ok:
+        return jsonify({"success":False, "message":"發送郵件失敗，請稍後重試"}),500
+    return jsonify({"success":True, "message":"驗證碼已發送至電郵"}),200
+
+# 2. POST /api/auth/register 提交驗證碼+密碼，開通帳號（新會員送6星星幣）
+@app.route("/api/auth/register", methods=["POST"])
+def register_account():
+    data = request.get_json()
+    email = data.get("email","").strip().lower()
+    code = data.get("code","").strip()
+    password = data.get("password","")
+    if not email or not code or not password:
+        return jsonify({"success":False,"message":"缺少欄位"}),400
+    # 密碼規則：最少6位，英數+符號
+    if len(password) <6:
+        return jsonify({"success":False,"message":"密碼最少6位"}),400
+    # 查驗證碼
+    v_record = verify_collection.find_one({"email":email})
+    if not v_record or v_record["code"] != code or v_record["expire_at"] < datetime.utcnow():
+        return jsonify({"success":False,"message":"驗證碼錯誤或已過期"}),400
+    # 檢查帳號是否已註冊
+    exist_user = user_collection.find_one({"email":email})
+    if exist_user:
+        return jsonify({"success":False,"message":"此電郵已經註冊"}),400
+    user_id = f"user_{uuid.uuid4().hex}"
+    new_user = {
+        "user_id": user_id,
+        "email": email,
+        "password_hash": hash_password(password),
+        "star_coins":6,
+        "created_at": datetime.utcnow()
+    }
+    user_collection.insert_one(new_user)
+    # 清除已使用驗證碼
+    verify_collection.delete_one({"email":email})
+    # 簽發JWT token，有效期7天
+    token = jwt.encode({"userId":user_id, "exp":datetime.utcnow()+timedelta(days=7)}, JWT_SECRET, algorithm="HS256")
+    return jsonify({"success":True, "token":token, "user":{"user_id":user_id,"email":email,"star_coins":6}}),201
+
+#3. POST /api/auth/login 電郵密碼登入
+@app.route("/api/auth/login", methods=["POST"])
+def login():
+    data = request.get_json()
+    email = data.get("email","").strip().lower()
+    password = data.get("password","")
+    if not email or not password:
+        return jsonify({"success":False,"message":"請輸入電郵同密碼"}),400
+    user = user_collection.find_one({"email":email})
+    if not user or user["password_hash"] != hash_password(password):
+        return jsonify({"success":False,"message":"電郵或密碼錯誤"}),401
+    token = jwt.encode({"userId":user["user_id"], "exp":datetime.utcnow()+timedelta(days=7)}, JWT_SECRET, algorithm="HS256")
+    return jsonify({
+        "success":True,
+        "token":token,
+        "user":{
+            "user_id":user["user_id"],
+            "email":user["email"],
+            "star_coins":user["star_coins"]
+        }
+    })
+
+#4. POST /api/auth/forgot-code 忘記密碼：發送重設密碼驗證碼
+@app.route("/api/auth/forgot-code", methods=["POST"])
+def send_forgot_code():
+    data = request.get_json()
+    email = data.get("email","").strip().lower()
+    if not email:
+        return jsonify({"success":False,"message":"請輸入電郵"}),400
+    user = user_collection.find_one({"email":email})
+    if not user:
+        return jsonify({"success":False,"message":"找不到該電郵帳戶"}),404
+    code = ''.join(random.choices("0123456789", k=6))
+    expire_at = datetime.utcnow() + timedelta(minutes=15)
+    verify_collection.update_one({"email":email}, {"$set":{"code":code,"expire_at":expire_at}}, upsert=True)
+    email_body = f"""Dream of Wisdom 重設密碼驗證碼
+你的重設密碼驗證碼：{code}
+有效期15分鐘，如非本人操作可忽略此郵件。"""
+    ok = send_email(email, "DreamofWisdom 重設密碼驗證碼", email_body)
+    if not ok:
+        return jsonify({"success":False, "message":"發送郵件失敗"}),500
+    return jsonify({"success":True,"message":"驗證碼已發送"}),200
+
+#5. POST /api/auth/reset-password 驗證碼 + 新密碼，重設密碼
+@app.route("/api/auth/reset-password", methods=["POST"])
+def reset_password():
+    data = request.get_json()
+    email = data.get("email","").strip().lower()
+    code = data.get("code","").strip()
+    new_password = data.get("password","")
+    if len(new_password)<6:
+        return jsonify({"success":False,"message":"密碼最少6位"}),400
+    v_record = verify_collection.find_one({"email":email})
+    if not v_record or v_record["code"] != code or v_record["expire_at"] < datetime.utcnow():
+        return jsonify({"success":False,"message":"驗證碼錯誤或過期"}),400
+    user = user_collection.find_one({"email":email})
+    if not user:
+        return jsonify({"success":False,"message":"帳戶不存在"}),404
+    user_collection.update_one({"email":email}, {"$set":{"password_hash": hash_password(new_password)}})
+    verify_collection.delete_one({"email":email})
+    return jsonify({"success":True,"message":"密碼重設成功，可登入"}),200
 
 
 if __name__ == "__main__":
