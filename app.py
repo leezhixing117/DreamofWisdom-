@@ -14,18 +14,15 @@ CORS(app, origins=[
     "https://www.dreamofwisdom.com"
 ])
 
-# 讀環境變數
 DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY")
 API_URL = "https://api.deepseek.com/v1/chat/completions"
 MONGODB_URI = os.environ.get("MONGODB_URI")
 JWT_SECRET_KEY = os.environ.get("JWT_SECRET_KEY")
 
-# MongoDB 連接
 client = MongoClient(MONGODB_URI)
 db = client["dreamofwisdom"]
 dream_col = db["dream_records"]
 
-# JWT 驗證裝飾器（驗證 Node Auth 發出嘅token）
 def token_required(func):
     def wrapper(*args, **kwargs):
         auth_header = request.headers.get("Authorization")
@@ -44,8 +41,8 @@ def token_required(func):
     return wrapper
 
 
-# 1. DeepSeek 解夢接口（唔使token，公開）
-@app.route("/api/analyze", methods=["POST"])
+# 唔帶 /api 前綴
+@app.route("/analyze", methods=["POST"])
 def analyze_dream():
     data = request.get_json()
     dream_content = data.get("dreamContent")
@@ -74,8 +71,7 @@ def analyze_dream():
     return jsonify(resp.json())
 
 
-# 2. 儲存夢境記錄
-@app.route("/api/dream-record", methods=["POST"])
+@app.route("/dream-record", methods=["POST"])
 @token_required
 def save_dream_record(current_user_id):
     data = request.get_json()
@@ -93,8 +89,7 @@ def save_dream_record(current_user_id):
     }), 201
 
 
-# 3. 讀取該用戶全部夢境歷史
-@app.route("/api/dream-records", methods=["GET"])
+@app.route("/dream-records", methods=["GET"])
 @token_required
 def get_dream_records(current_user_id):
     records = list(dream_col.find({"user_id": current_user_id}).sort("createdAt", -1))
@@ -103,8 +98,7 @@ def get_dream_records(current_user_id):
     return jsonify(records)
 
 
-# 4. 更新夢境（包含更新tags）
-@app.route("/api/dream-record/<record_id>", methods=["PUT"])
+@app.route("/dream-record/<record_id>", methods=["PUT"])
 @token_required
 def update_dream_record(current_user_id, record_id):
     from bson import ObjectId
@@ -128,8 +122,7 @@ def update_dream_record(current_user_id, record_id):
     return jsonify({"message":"更新成功"})
 
 
-# 5. 刪除夢境記錄
-@app.route("/api/dream-record/<record_id>", methods=["DELETE"])
+@app.route("/dream-record/<record_id>", methods=["DELETE"])
 @token_required
 def delete_dream_record(current_user_id, record_id):
     from bson import ObjectId
