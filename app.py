@@ -13,7 +13,7 @@ from pymongo import MongoClient
 from datetime import datetime, timedelta
 
 app = Flask(__name__)
-# ✅ 重點：加上 supports_credentials=True 解決OPTIONS preflight攔截
+# ✅ 加上 supports_credentials=True 解決OPTIONS preflight攔截
 CORS(app, origins=[
     "https://dreamofwisdom.com",
     "https://www.dreamofwisdom.com"
@@ -23,13 +23,11 @@ CORS(app, origins=[
 DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY")
 API_URL = "https://api.deepseek.com/v1/chat/completions"
 MONGODB_URI = os.environ.get("MONGODB_URI")
-# 修正變數名，同Render環境變數JWT_SECRET_KEY對齊
 JWT_SECRET_KEY = os.environ.get("JWT_SECRET_KEY")
 
-# SMTP 郵件設定，直接使用你Render已有的 EMAIL_SENDER / EMAIL_PASS
+# SMTP 郵件設定
 EMAIL_SENDER = os.environ.get("EMAIL_SENDER")
 EMAIL_PASS = os.environ.get("EMAIL_PASS")
-# Gmail SMTP
 SMTP_HOST = "smtp.gmail.com"
 SMTP_PORT = 465
 
@@ -43,10 +41,10 @@ verify_collection = db["email_verify_codes"]
 # GET健康檢查
 @app.route('/', methods=['GET'])
 def index():
-    return "DreamWisdom DeepSeek API Ready"
+    return "DreamWisdom API Ready"
 
-# POST /api/analyze 主解夢接口（DeepSeek）
-@app.route('/api/analyze', methods=['POST'])
+# POST /analyze 主解夢接口
+@app.route('/analyze', methods=['POST'])
 def deepseek_analyze():
     try:
         payload = request.get_json()
@@ -76,8 +74,8 @@ def deepseek_analyze():
         print("解夢錯誤：",str(err))
         return jsonify({"success":False, "message":"伺服器錯誤"}),500
 
-# ✅ 新增：深度解夢 /api/deep-analyze
-@app.route('/api/deep-analyze', methods=['POST'])
+# POST /deep-analyze 深度解夢
+@app.route('/deep-analyze', methods=['POST'])
 def deep_analyze():
     auth_header = request.headers.get("Authorization")
     if not auth_header or not auth_header.startswith("Bearer "):
@@ -111,8 +109,8 @@ def deep_analyze():
     reply = aiResult["choices"][0]["message"]["content"]
     return jsonify({"success":True, "result":reply})
 
-# ✅ 新增：問卷提交 /api/quiz-finish
-@app.route('/api/quiz-finish', methods=['POST'])
+# POST /quiz-finish 問卷提交
+@app.route('/quiz-finish', methods=['POST'])
 def quiz_finish():
     auth_header = request.headers.get("Authorization")
     if not auth_header or not auth_header.startswith("Bearer "):
@@ -123,12 +121,11 @@ def quiz_finish():
         user_id = payload["userId"]
     except jwt.InvalidTokenError:
         return jsonify({"success": False, "message": "憑證無效"}), 401
-    # 完成問卷送星星
     user_collection.update_one({"user_id":user_id}, {"$inc":{"star_coins":3}})
     return jsonify({"success":True, "message":"問卷提交成功，已發放星星"}),200
 
-# ✅ 新增：看廣告拿星 /api/watch-ad
-@app.route('/api/watch-ad', methods=['POST'])
+# POST /watch-ad 看廣告拿星
+@app.route('/watch-ad', methods=['POST'])
 def watch_ad():
     auth_header = request.headers.get("Authorization")
     if not auth_header or not auth_header.startswith("Bearer "):
@@ -139,7 +136,6 @@ def watch_ad():
         user_id = payload["userId"]
     except jwt.InvalidTokenError:
         return jsonify({"success": False, "message": "憑證無效"}), 401
-    # adWatchCount +1，累計3個兌換3星
     user = user_collection.find_one({"user_id":user_id})
     count = user.get("adWatchCount",0) + 1
     if count >=3:
@@ -149,8 +145,8 @@ def watch_ad():
         user_collection.update_one({"user_id":user_id}, {"$set":{"adWatchCount":count}})
         return jsonify({"success":True, "message":f"已觀看{count}/3個廣告"}),200
 
-# ✅ 新增：取得用戶資料 /api/me
-@app.route('/api/me', methods=['GET'])
+# GET /me 取得用戶資料
+@app.route('/me', methods=['GET'])
 def get_profile():
     auth_header = request.headers.get("Authorization")
     if not auth_header or not auth_header.startswith("Bearer "):
@@ -192,8 +188,8 @@ def get_dream_records():
 
 
 # ============ 夢境 CRUD API（JWT登入驗證）============
-# POST /api/dream-record 新增夢境紀錄
-@app.route('/api/dream-record', methods=['POST'])
+# POST /dream-record 新增夢境紀錄
+@app.route('/dream-record', methods=['POST'])
 def save_dream_record():
     auth_header = request.headers.get("Authorization")
     if not auth_header or not auth_header.startswith("Bearer "):
@@ -221,8 +217,8 @@ def save_dream_record():
     dream_collection.insert_one(record)
     return jsonify({"success": True, "dream": record}), 201
 
-# GET /api/dream-records 取得該用戶全部夢境
-@app.route('/api/dream-records', methods=['GET'])
+# GET /dream-records 取得該用戶全部夢境
+@app.route('/dream-records', methods=['GET'])
 def fetch_all_dream():
     auth_header = request.headers.get("Authorization")
     if not auth_header or not auth_header.startswith("Bearer "):
@@ -239,8 +235,8 @@ def fetch_all_dream():
         item.pop("_id", None)
     return jsonify({"success": True, "records": records})
 
-# DELETE /api/dream-record/<dream_id> 刪除夢境
-@app.route('/api/dream-record/<dream_id>', methods=['DELETE'])
+# DELETE /dream-record/<dream_id> 刪除夢境
+@app.route('/dream-record/<dream_id>', methods=['DELETE'])
 def delete_dream(dream_id):
     auth_header = request.headers.get("Authorization")
     if not auth_header or not auth_header.startswith("Bearer "):
@@ -257,8 +253,8 @@ def delete_dream(dream_id):
         return jsonify({"success": False, "message": "找不到夢境記錄或者無權限刪除"}), 404
     return jsonify({"success": True, "message": "夢境記錄已刪除"}), 200
 
-# PUT /api/dream-record/<dream_id>/tags 更新夢境標籤
-@app.route('/api/dream-record/<dream_id>/tags', methods=['PUT'])
+# PUT /dream-record/<dream_id>/tags 更新夢境標籤
+@app.route('/dream-record/<dream_id>/tags', methods=['PUT'])
 def edit_dream_tags(dream_id):
     auth_header = request.headers.get("Authorization")
     if not auth_header or not auth_header.startswith("Bearer "):
@@ -307,14 +303,13 @@ def send_email(to_email, subject, body):
         print("SMTP發信錯誤：", str(e))
         return False
 
-# 1. POST /api/auth/send-code 發送註冊驗證碼
-@app.route("/api/auth/send-code", methods=["POST"])
+# 1. POST /auth/send-code 發送註冊驗證碼
+@app.route("/auth/send-code", methods=["POST"])
 def send_register_code():
     data = request.get_json()
     email = data.get("email", "").strip().lower()
     if not email:
         return jsonify({"success":False, "message":"請輸入電郵"}),400
-    # 6位數驗證碼
     code = ''.join(random.choices("0123456789", k=6))
     expire_at = datetime.utcnow() + timedelta(minutes=15)
     verify_collection.update_one({"email":email}, {"$set":{"code":code,"expire_at":expire_at}}, upsert=True)
@@ -326,8 +321,8 @@ def send_register_code():
         return jsonify({"success":False, "message":"發送郵件失敗，請稍後重試"}),500
     return jsonify({"success":True, "message":"驗證碼已發送至電郵"}),200
 
-# 2. POST /api/auth/register 提交驗證碼+密碼，開通帳號（新會員送6星星幣）
-@app.route("/api/auth/register", methods=["POST"])
+# 2. POST /auth/register 提交驗證碼+密碼，開通帳號
+@app.route("/auth/register", methods=["POST"])
 def register_account():
     data = request.get_json()
     email = data.get("email","").strip().lower()
@@ -335,14 +330,11 @@ def register_account():
     password = data.get("password","")
     if not email or not code or not password:
         return jsonify({"success":False,"message":"缺少欄位"}),400
-    # 密碼規則：最少6位
     if len(password) <6:
         return jsonify({"success":False,"message":"密碼最少6位，可使用英文字、數字、符號"}),400
-    # 查驗證碼
     v_record = verify_collection.find_one({"email":email})
     if not v_record or v_record["code"] != code or v_record["expire_at"] < datetime.utcnow():
         return jsonify({"success":False,"message":"驗證碼錯誤或已過期"}),400
-    # 檢查帳號是否已註冊
     exist_user = user_collection.find_one({"email":email})
     if exist_user:
         return jsonify({"success":False,"message":"此電郵已經註冊"}),400
@@ -356,14 +348,12 @@ def register_account():
         "created_at": datetime.utcnow()
     }
     user_collection.insert_one(new_user)
-    # 清除已使用驗證碼
     verify_collection.delete_one({"email":email})
-    # 簽發JWT token，有效期7天
     token = jwt.encode({"userId":user_id, "exp":datetime.utcnow()+timedelta(days=7)}, JWT_SECRET_KEY, algorithm="HS256")
     return jsonify({"success":True, "token":token, "user":{"user_id":user_id,"email":email,"star_coins":6, "adWatchCount":0}}),201
 
-#3. POST /api/auth/login 電郵密碼登入
-@app.route("/api/auth/login", methods=["POST"])
+#3. POST /auth/login 電郵密碼登入
+@app.route("/auth/login", methods=["POST"])
 def login():
     data = request.get_json()
     email = data.get("email","").strip().lower()
@@ -385,8 +375,8 @@ def login():
         }
     })
 
-#4. POST /api/auth/forgot-code 忘記密碼：發送重設密碼驗證碼
-@app.route("/api/auth/forgot-code", methods=["POST"])
+#4. POST /auth/forgot-code 忘記密碼：發送重設密碼驗證碼
+@app.route("/auth/forgot-code", methods=["POST"])
 def send_forgot_code():
     data = request.get_json()
     email = data.get("email","").strip().lower()
@@ -406,8 +396,8 @@ def send_forgot_code():
         return jsonify({"success":False, "message":"發送郵件失敗"}),500
     return jsonify({"success":True,"message":"驗證碼已發送"}),200
 
-#5. POST /api/auth/reset-password 驗證碼 + 新密碼，重設密碼
-@app.route("/api/auth/reset-password", methods=["POST"])
+#5. POST /auth/reset-password 驗證碼 + 新密碼，重設密碼
+@app.route("/auth/reset-password", methods=["POST"])
 def reset_password():
     data = request.get_json()
     email = data.get("email","").strip().lower()
