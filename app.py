@@ -34,12 +34,22 @@ JWT_SECRET_KEY = os.environ.get("JWT_SECRET_KEY")
 EMAIL_SENDER = os.environ.get("EMAIL_SENDER")
 EMAIL_PASS = os.environ.get("MAIL_PASS")
 
-# MongoDB連接
-client = MongoClient(MONGODB_URI)
-db = client["dreamofwisdom"]
-dream_col = db["dream_records"]
-user_col = db["users"]
-verify_col = db["verify_codes"]
+# ===== 改動重點：延遲連Mongo，唔係開機就連，減少開機RAM消耗 =====
+client = None
+db = None
+dream_col = None
+user_col = None
+verify_col = None
+
+def get_db_collections():
+    global client, db, dream_col, user_col, verify_col
+    if client is None:
+        client = MongoClient(MONGODB_URI)
+        db = client["dreamofwisdom"]
+        dream_col = db["dream_records"]
+        user_col = db["users"]
+        verify_col = db["verify_codes"]
+    return dream_col, user_col, verify_col
 
 # JWT 驗證裝飾器
 def token_required(func):
@@ -59,19 +69,20 @@ def token_required(func):
     wrapper.__name__ = func.__name__
     return wrapper
 
-# 發送驗證碼郵件函數
+# 發送驗證碼郵件函數（SMTP_SSL 465 保留你原本寫法）
 def send_email(to_email, code):
     msg = MIMEText(f"你的DreamOfWisdom驗證碼：{code}\n有效期15分鐘", "plain", "utf-8")
     msg["Subject"] = "DreamOfWisdom 驗證碼"
     msg["From"] = EMAIL_SENDER
     msg["To"] = to_email
-    with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+    with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=10) as server:
         server.login(EMAIL_SENDER, EMAIL_PASS)
         server.send_message(msg)
 
 # ========== 原有解夢 & 夢境紀錄接口（全部加 /api） ==========
 @app.route("/api/analyze", methods=["POST"])
 def analyze_dream():
+    dream_col, _, _ = get_db_collections()
     data = request.get_json()
     dream_content = data.get("dreamContent")
     if not dream_content:
@@ -93,7 +104,7 @@ def analyze_dream():
         "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
         "Content-Type": "application/json"
     }
-    resp = requests.post(API_URL, headers=headers, json=payload)
+    resp = requests.post(API_URL, headers=headers, json=payload, timeout=30)
     if resp.status_code != 200:
         return jsonify({"message": "DeepSeek API錯誤", "detail": resp.text}), 500
     return jsonify(resp.json())
@@ -102,6 +113,7 @@ def analyze_dream():
 @app.route("/api/dream-record", methods=["POST"])
 @token_required
 def save_dream_record(current_user_id):
+    dream_col, _, _ = get_db_collections()
     data = request.get_json()
     record = {
         "user_id": current_user_id,
@@ -120,6 +132,7 @@ def save_dream_record(current_user_id):
 @app.route("/api/dream-records", methods=["GET"])
 @token_required
 def get_dream_records(current_user_id):
+    dream_col, _, _ = get_db_collections()
     records = list(dream_col.find({"user_id": current_user_id}).sort("createdAt", -1))
     for r in records:
         r["_id"] = str(r["_id"])
@@ -129,6 +142,7 @@ def get_dream_records(current_user_id):
 @app.route("/api/dream-record/<record_id>", methods=["PUT"])
 @token_required
 def update_dream_record(current_user_id, record_id):
+    dream_col, _, _ = get_db_collections()
     try:
         obj_id = ObjectId(record_id)
     except:
@@ -152,6 +166,7 @@ def update_dream_record(current_user_id, record_id):
 @app.route("/api/dream-record/<record_id>", methods=["DELETE"])
 @token_required
 def delete_dream_record(current_user_id, record_id):
+    dream_col, _, _ = get_db_collections()
     try:
         obj_id = ObjectId(record_id)
     except:
@@ -164,6 +179,7 @@ def delete_dream_record(current_user_id, record_id):
 # ========== 全套Auth註冊登入接口（全部加 /api） ==========
 @app.route("/api/send-register-code", methods=["POST"])
 def send_register_code():
+    _, user_col, verify_col = get_db_collections()
     data = request.get_json()
     email = data.get("email","").strip().lower()
     password = data.get("password","")
@@ -192,6 +208,7 @@ def send_register_code():
 
 @app.route("/api/verify-register", methods=["POST"])
 def verify_register():
+    _, user_col, verify_col = get_db_collections()
     data = request.get_json()
     email = data.get("email","").strip().lower()
     code = data.get("code","").strip()
@@ -212,6 +229,7 @@ def verify_register():
 
 @app.route("/api/login", methods=["POST"])
 def login():
+    _, user_col, _ = get_db_collections()
     data = request.get_json()
     email = data.get("email","").strip().lower()
     password = data.get("password","")
@@ -236,6 +254,7 @@ def login():
 @app.route("/api/me", methods=["GET"])
 @token_required
 def get_me(current_user_id):
+    _, user_col, _ = get_db_collections()
     try:
         u = user_col.find_one({"_id":ObjectId(current_user_id)}, {"password_hash":0})
     except:
@@ -248,6 +267,7 @@ def get_me(current_user_id):
 
 @app.route("/api/send-reset-code", methods=["POST"])
 def send_reset_code():
+    _, user_col, verify_col = get_db_collections()
     data = request.get_json()
     email = data.get("email","").strip().lower()
     user = user_col.find_one({"email":email})
@@ -268,6 +288,7 @@ def send_reset_code():
 
 @app.route("/api/reset-password", methods=["POST"])
 def reset_password():
+    _, user_col, verify_col = get_db_collections()
     data = request.get_json()
     email = data.get("email","").strip().lower()
     code = data.get("code","").strip()
@@ -291,3 +312,10 @@ def test_email():
         return jsonify({"ok":True, "message":"測試郵件已送出"})
     except Exception as e:
         return jsonify({"ok":False, "error":str(e)}),500
+
+@app.route("/", methods=["GET"])
+def root():
+    return jsonify({"msg":"Dream API is running"})
+
+if __name__ == "__main__":
+    app.run(debug=False, host="0.0.0.0", port=int(os.environ.get("PORT",10000)))
