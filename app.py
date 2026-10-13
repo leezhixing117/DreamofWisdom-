@@ -13,7 +13,7 @@ from email.mime.text import MIMEText
 from bson import ObjectId
 
 app = Flask(__name__)
-# ========== 修改咗CORS呢一段，加入supports_credentials同允許Authorization header ==========
+# ========== CORS設定 ==========
 CORS(app,
      origins=[
          "https://dreamofwisdom.com",
@@ -67,8 +67,8 @@ def send_email(to_email, code):
         server.login(EMAIL_SENDER, EMAIL_PASS)
         server.send_message(msg)
 
-# ========== 原有解夢 & 夢境紀錄接口 ==========
-@app.route("/analyze", methods=["POST"])
+# ========== 原有解夢 & 夢境紀錄接口（全部加 /api） ==========
+@app.route("/api/analyze", methods=["POST"])
 def analyze_dream():
     data = request.get_json()
     dream_content = data.get("dreamContent")
@@ -97,7 +97,7 @@ def analyze_dream():
     return jsonify(resp.json())
 
 
-@app.route("/dream-record", methods=["POST"])
+@app.route("/api/dream-record", methods=["POST"])
 @token_required
 def save_dream_record(current_user_id):
     data = request.get_json()
@@ -115,7 +115,7 @@ def save_dream_record(current_user_id):
     }), 201
 
 
-@app.route("/dream-records", methods=["GET"])
+@app.route("/api/dream-records", methods=["GET"])
 @token_required
 def get_dream_records(current_user_id):
     records = list(dream_col.find({"user_id": current_user_id}).sort("createdAt", -1))
@@ -124,7 +124,7 @@ def get_dream_records(current_user_id):
     return jsonify(records)
 
 
-@app.route("/dream-record/<record_id>", methods=["PUT"])
+@app.route("/api/dream-record/<record_id>", methods=["PUT"])
 @token_required
 def update_dream_record(current_user_id, record_id):
     try:
@@ -147,7 +147,7 @@ def update_dream_record(current_user_id, record_id):
     return jsonify({"message":"更新成功"})
 
 
-@app.route("/dream-record/<record_id>", methods=["DELETE"])
+@app.route("/api/dream-record/<record_id>", methods=["DELETE"])
 @token_required
 def delete_dream_record(current_user_id, record_id):
     try:
@@ -159,8 +159,8 @@ def delete_dream_record(current_user_id, record_id):
         return jsonify({"message": "記錄不存在或者唔屬於你"}),404
     return jsonify({"message": "刪除成功"})
 
-# ========== 全套Auth註冊登入接口 ==========
-@app.route("/send-register-code", methods=["POST"])
+# ========== 全套Auth註冊登入接口（全部加 /api） ==========
+@app.route("/api/send-register-code", methods=["POST"])
 def send_register_code():
     data = request.get_json()
     email = data.get("email","").strip().lower()
@@ -188,7 +188,7 @@ def send_register_code():
     return jsonify({"message":"驗證碼已發送到你的電郵"})
 
 
-@app.route("/verify-register", methods=["POST"])
+@app.route("/api/verify-register", methods=["POST"])
 def verify_register():
     data = request.get_json()
     email = data.get("email","").strip().lower()
@@ -208,7 +208,7 @@ def verify_register():
     return jsonify({"message":"註冊成功，可以登入"})
 
 
-@app.route("/login", methods=["POST"])
+@app.route("/api/login", methods=["POST"])
 def login():
     data = request.get_json()
     email = data.get("email","").strip().lower()
@@ -231,7 +231,7 @@ def login():
     })
 
 
-@app.route("/me", methods=["GET"])
+@app.route("/api/me", methods=["GET"])
 @token_required
 def get_me(current_user_id):
     try:
@@ -244,7 +244,7 @@ def get_me(current_user_id):
     return jsonify(u)
 
 
-@app.route("/send-reset-code", methods=["POST"])
+@app.route("/api/send-reset-code", methods=["POST"])
 def send_reset_code():
     data = request.get_json()
     email = data.get("email","").strip().lower()
@@ -264,7 +264,7 @@ def send_reset_code():
     return jsonify({"message":"重設密碼驗證碼已發送"})
 
 
-@app.route("/reset-password", methods=["POST"])
+@app.route("/api/reset-password", methods=["POST"])
 def reset_password():
     data = request.get_json()
     email = data.get("email","").strip().lower()
@@ -282,7 +282,7 @@ def reset_password():
 
 
 # 測試SMTP郵件接口
-@app.route("/test-email", methods=["GET"])
+@app.route("/api/test-email", methods=["GET"])
 def test_email():
     try:
         send_email(EMAIL_SENDER, "123456")
