@@ -3,6 +3,7 @@ sys.stdout.reconfigure(encoding='utf-8')
 import os
 import jwt
 import bcrypt
+from bson import ObjectId
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import requests
@@ -13,7 +14,7 @@ from email.mime.text import MIMEText
 
 app = Flask(__name__)
 
-# CORS 允許你哋網站域名
+# CORS 允許域名
 CORS(app, origins=[
     "https://dreamofwisdom.com",
     "https://www.dreamofwisdom.com"
@@ -172,7 +173,6 @@ def get_dream_records():
 # --------------------------
 # 6. 刪除單條夢境 DELETE /dream-record/<record_id>
 # --------------------------
-from bson import ObjectId
 @app.route("/dream-record/<record_id>", methods=["DELETE"])
 def delete_dream_record(record_id):
     user_id = verify_token()
