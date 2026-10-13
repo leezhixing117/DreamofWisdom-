@@ -7,12 +7,14 @@ import requests
 from pymongo import MongoClient
 from datetime import datetime
 import jwt
-import bcrypt
+from passlib.context import CryptContext
 import smtplib
 from email.mime.text import MIMEText
 from bson import ObjectId
 
 app = Flask(__name__)
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
 # ========== CORS設定 ==========
 CORS(app,
      origins=[
@@ -24,7 +26,7 @@ CORS(app,
      methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"]
 )
 
-# 環境變數【重點修正：MAIL_PASS，對齊Render入面嘅key名】
+# 環境變數
 DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY")
 API_URL = "https://api.deepseek.com/v1/chat/completions"
 MONGODB_URI = os.environ.get("MONGODB_URI")
@@ -196,8 +198,8 @@ def verify_register():
     item = verify_col.find_one({"email":email, "code":code, "type":"register"})
     if not item or datetime.utcnow().timestamp() > item["expire"]:
         return jsonify({"message":"驗證碼無效或已過期"}),400
-    # 加密密碼存入users
-    hash_pw = bcrypt.hashpw(item["password"].encode("utf-8"), bcrypt.gensalt())
+    # passlib 加密
+    hash_pw = pwd_context.hash(item["password"])
     user_col.insert_one({
         "email":email,
         "password_hash":hash_pw,
@@ -216,7 +218,7 @@ def login():
     user = user_col.find_one({"email":email})
     if not user:
         return jsonify({"message":"電郵或密碼錯誤"}),401
-    if not bcrypt.checkpw(password.encode("utf-8"), user["password_hash"]):
+    if not pwd_context.verify(password, user["password_hash"]):
         return jsonify({"message":"電郵或密碼錯誤"}),401
     token = jwt.encode(
         {"user_id":str(user["_id"]), "email":user["email"]},
@@ -275,7 +277,7 @@ def reset_password():
     item = verify_col.find_one({"email":email,"code":code,"type":"reset"})
     if not item or datetime.utcnow().timestamp()>item["expire"]:
         return jsonify({"message":"驗證碼無效或過期"}),400
-    hash_pw = bcrypt.hashpw(new_pw.encode("utf-8"), bcrypt.gensalt())
+    hash_pw = pwd_context.hash(new_pw)
     user_col.update_one({"email":email}, {"$set":{"password_hash":hash_pw}})
     verify_col.delete_one({"_id":item["_id"]})
     return jsonify({"message":"密碼重設成功"})
@@ -289,7 +291,3 @@ def test_email():
         return jsonify({"ok":True, "message":"測試郵件已送出"})
     except Exception as e:
         return jsonify({"ok":False, "error":str(e)}),500
-
-
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=10000)
