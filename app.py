@@ -25,7 +25,7 @@ API_URL = "https://api.deepseek.com/v1/chat/completions"
 MONGODB_URI = os.environ.get("MONGODB_URI")
 JWT_SECRET_KEY = os.environ.get("JWT_SECRET_KEY")
 
-# SMTP 郵件設定
+# SMTP 郵件設定（Gmail SSL 465）
 EMAIL_SENDER = os.environ.get("EMAIL_SENDER")
 EMAIL_PASS = os.environ.get("EMAIL_PASS")
 SMTP_HOST = "smtp.gmail.com"
@@ -280,12 +280,12 @@ def edit_dream_tags(dream_id):
     return jsonify({"success":True, "message":"標籤更新成功"}),200
 
 
-# ====================== 會員 AUTH 全套接口（SMTP郵件【除錯版】） ======================
+# ====================== 會員 AUTH 全套接口（SMTP【強化除錯版】） ======================
 import hashlib
 def hash_password(raw_pw):
     return hashlib.sha256(raw_pw.encode("utf-8")).hexdigest()
 
-# ✅ 更新咗除錯版 send_email，會喺Render log印詳細錯誤
+# ✅ 強化版 send_email，詳細log、timeout
 def send_email(to_email, subject, body):
     if not EMAIL_SENDER or not EMAIL_PASS:
         print("[SMTP] 缺少 EMAIL_SENDER / EMAIL_PASS")
@@ -295,14 +295,16 @@ def send_email(to_email, subject, body):
         msg["Subject"] = subject
         msg["From"] = EMAIL_SENDER
         msg["To"] = to_email
-        print(f"[SMTP] 嘗試發送: {to_email}")
-        with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT) as server:
+        print(f"[SMTP] 開始嘗試發送 -> {to_email} | host:{SMTP_HOST}:{SMTP_PORT}")
+        with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, timeout=15) as server:
+            print("[SMTP] 登入中...")
             server.login(EMAIL_SENDER, EMAIL_PASS)
+            print("[SMTP] 登入成功，準備send_message")
             server.send_message(msg)
-        print("[SMTP] 發送成功")
+        print("[SMTP] ✅ 郵件發送成功")
         return True
     except Exception as e:
-        print("[SMTP ERROR]", repr(e))
+        print("[SMTP ERROR 詳細錯誤]:", repr(e))
         return False
 
 # 1. POST /auth/send-code 發送註冊驗證碼
