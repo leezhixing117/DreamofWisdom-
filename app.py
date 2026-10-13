@@ -13,22 +13,23 @@ from pymongo import MongoClient
 from datetime import datetime, timedelta
 
 app = Flask(__name__)
-# CORS 維持正式域名
+# ✅ 重點：加上 supports_credentials=True 解決OPTIONS preflight攔截
 CORS(app, origins=[
     "https://dreamofwisdom.com",
     "https://www.dreamofwisdom.com"
-])
+], supports_credentials=True)
 
 # 讀取環境變數
 DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY")
 API_URL = "https://api.deepseek.com/v1/chat/completions"
 MONGODB_URI = os.environ.get("MONGODB_URI")
-JWT_SECRET = os.environ.get("JWT_SECRET")
+# 修正變數名，同Render環境變數JWT_SECRET_KEY對齊
+JWT_SECRET_KEY = os.environ.get("JWT_SECRET_KEY")
 
 # SMTP 郵件設定，直接使用你Render已有的 EMAIL_SENDER / EMAIL_PASS
 EMAIL_SENDER = os.environ.get("EMAIL_SENDER")
 EMAIL_PASS = os.environ.get("EMAIL_PASS")
-# Gmail SMTP，如用其他郵箱需要修改
+# Gmail SMTP
 SMTP_HOST = "smtp.gmail.com"
 SMTP_PORT = 465
 
@@ -44,7 +45,7 @@ verify_collection = db["email_verify_codes"]
 def index():
     return "DreamWisdom DeepSeek API Ready"
 
-# POST 深度解夢主接口（DeepSeek）
+# POST /api/analyze 主解夢接口（DeepSeek）
 @app.route('/api/analyze', methods=['POST'])
 def deepseek_analyze():
     try:
@@ -75,6 +76,104 @@ def deepseek_analyze():
         print("解夢錯誤：",str(err))
         return jsonify({"success":False, "message":"伺服器錯誤"}),500
 
+# ✅ 新增：深度解夢 /api/deep-analyze
+@app.route('/api/deep-analyze', methods=['POST'])
+def deep_analyze():
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        return jsonify({"success": False, "message": "未登入"}), 401
+    token = auth_header.split(" ")[1]
+    try:
+        payload = jwt.decode(token, JWT_SECRET_KEY, algorithms=["HS256"])
+    except jwt.InvalidTokenError:
+        return jsonify({"success": False, "message": "憑證無效"}), 401
+    data = request.get_json()
+    dream_content = data.get("dream_content")
+    if not dream_content:
+        return jsonify({"success":False, "message":"缺少夢境內容"}),400
+    messages = [
+        {"role":"system","content":"你係專業解夢師，結合心理學深度解析夢境"},
+        {"role":"user", "content": dream_content}
+    ]
+    reqBody = {
+        "model": "deepseek-chat",
+        "messages": messages,
+        "temperature":0.7
+    }
+    headers = {
+        "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
+        "Content-Type":"application/json"
+    }
+    res = requests.post(API_URL, headers=headers, json=reqBody, timeout=60)
+    if res.status_code !=200:
+        return jsonify({"success":False, "message":"深度解夢失敗"}),500
+    aiResult = res.json()
+    reply = aiResult["choices"][0]["message"]["content"]
+    return jsonify({"success":True, "result":reply})
+
+# ✅ 新增：問卷提交 /api/quiz-finish
+@app.route('/api/quiz-finish', methods=['POST'])
+def quiz_finish():
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        return jsonify({"success": False, "message": "未登入"}), 401
+    token = auth_header.split(" ")[1]
+    try:
+        payload = jwt.decode(token, JWT_SECRET_KEY, algorithms=["HS256"])
+        user_id = payload["userId"]
+    except jwt.InvalidTokenError:
+        return jsonify({"success": False, "message": "憑證無效"}), 401
+    # 完成問卷送星星
+    user_collection.update_one({"user_id":user_id}, {"$inc":{"star_coins":3}})
+    return jsonify({"success":True, "message":"問卷提交成功，已發放星星"}),200
+
+# ✅ 新增：看廣告拿星 /api/watch-ad
+@app.route('/api/watch-ad', methods=['POST'])
+def watch_ad():
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        return jsonify({"success": False, "message": "未登入"}), 401
+    token = auth_header.split(" ")[1]
+    try:
+        payload = jwt.decode(token, JWT_SECRET_KEY, algorithms=["HS256"])
+        user_id = payload["userId"]
+    except jwt.InvalidTokenError:
+        return jsonify({"success": False, "message": "憑證無效"}), 401
+    # adWatchCount +1，累計3個兌換3星
+    user = user_collection.find_one({"user_id":user_id})
+    count = user.get("adWatchCount",0) + 1
+    if count >=3:
+        user_collection.update_one({"user_id":user_id}, {"$inc":{"star_coins":3}, "$set":{"adWatchCount":0}})
+        return jsonify({"success":True, "message":"已累計3個廣告，兌換3星星！"}),200
+    else:
+        user_collection.update_one({"user_id":user_id}, {"$set":{"adWatchCount":count}})
+        return jsonify({"success":True, "message":f"已觀看{count}/3個廣告"}),200
+
+# ✅ 新增：取得用戶資料 /api/me
+@app.route('/api/me', methods=['GET'])
+def get_profile():
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        return jsonify({"success": False, "message": "未登入"}), 401
+    token = auth_header.split(" ")[1]
+    try:
+        payload = jwt.decode(token, JWT_SECRET_KEY, algorithms=["HS256"])
+        user_id = payload["userId"]
+    except jwt.InvalidTokenError:
+        return jsonify({"success": False, "message": "憑證無效"}), 401
+    user = user_collection.find_one({"user_id":user_id})
+    if not user:
+        return jsonify({"success":False,"message":"找不到用戶"}),404
+    return jsonify({
+        "success":True,
+        "user":{
+            "user_id": user["user_id"],
+            "email": user["email"],
+            "star_coins": user["star_coins"],
+            "adWatchCount": user.get("adWatchCount",0)
+        }
+    })
+
 # 舊解夢路由，向後兼容唔刪
 @app.route('/', methods=['POST'])
 def deep_dream_old():
@@ -101,7 +200,7 @@ def save_dream_record():
         return jsonify({"success": False, "message": "未提供登入憑證"}), 401
     token = auth_header.split(" ")[1]
     try:
-        payload = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
+        payload = jwt.decode(token, JWT_SECRET_KEY, algorithms=["HS256"])
         user_id = payload["userId"]
     except jwt.InvalidTokenError:
         return jsonify({"success": False, "message": "憑證無效或已過期"}), 401
@@ -130,7 +229,7 @@ def fetch_all_dream():
         return jsonify({"success": False, "message": "未提供登入憑證"}), 401
     token = auth_header.split(" ")[1]
     try:
-        payload = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
+        payload = jwt.decode(token, JWT_SECRET_KEY, algorithms=["HS256"])
         user_id = payload["userId"]
     except jwt.InvalidTokenError:
         return jsonify({"success": False, "message": "憑證無效或已過期"}), 401
@@ -148,7 +247,7 @@ def delete_dream(dream_id):
         return jsonify({"success": False, "message": "未提供登入憑證"}), 401
     token = auth_header.split(" ")[1]
     try:
-        payload = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
+        payload = jwt.decode(token, JWT_SECRET_KEY, algorithms=["HS256"])
         user_id = payload["userId"]
     except jwt.InvalidTokenError:
         return jsonify({"success": False, "message": "憑證無效或已過期"}), 401
@@ -166,7 +265,7 @@ def edit_dream_tags(dream_id):
         return jsonify({"success": False, "message": "未提供登入憑證"}), 401
     token = auth_header.split(" ")[1]
     try:
-        payload = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
+        payload = jwt.decode(token, JWT_SECRET_KEY, algorithms=["HS256"])
         user_id = payload["userId"]
     except jwt.InvalidTokenError:
         return jsonify({"success": False, "message": "憑證無效或已過期"}), 401
@@ -253,14 +352,15 @@ def register_account():
         "email": email,
         "password_hash": hash_password(password),
         "star_coins":6,
+        "adWatchCount":0,
         "created_at": datetime.utcnow()
     }
     user_collection.insert_one(new_user)
     # 清除已使用驗證碼
     verify_collection.delete_one({"email":email})
     # 簽發JWT token，有效期7天
-    token = jwt.encode({"userId":user_id, "exp":datetime.utcnow()+timedelta(days=7)}, JWT_SECRET, algorithm="HS256")
-    return jsonify({"success":True, "token":token, "user":{"user_id":user_id,"email":email,"star_coins":6}}),201
+    token = jwt.encode({"userId":user_id, "exp":datetime.utcnow()+timedelta(days=7)}, JWT_SECRET_KEY, algorithm="HS256")
+    return jsonify({"success":True, "token":token, "user":{"user_id":user_id,"email":email,"star_coins":6, "adWatchCount":0}}),201
 
 #3. POST /api/auth/login 電郵密碼登入
 @app.route("/api/auth/login", methods=["POST"])
@@ -273,14 +373,15 @@ def login():
     user = user_collection.find_one({"email":email})
     if not user or user["password_hash"] != hash_password(password):
         return jsonify({"success":False,"message":"電郵或密碼錯誤"}),401
-    token = jwt.encode({"userId":user["user_id"], "exp":datetime.utcnow()+timedelta(days=7)}, JWT_SECRET, algorithm="HS256")
+    token = jwt.encode({"userId":user["user_id"], "exp":datetime.utcnow()+timedelta(days=7)}, JWT_SECRET_KEY, algorithm="HS256")
     return jsonify({
         "success":True,
         "token":token,
         "user":{
             "user_id":user["user_id"],
             "email":user["email"],
-            "star_coins":user["star_coins"]
+            "star_coins":user["star_coins"],
+            "adWatchCount": user.get("adWatchCount",0)
         }
     })
 
