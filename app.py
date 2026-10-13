@@ -24,13 +24,13 @@ CORS(app,
      methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"]
 )
 
-# 環境變數
+# 環境變數【重點修正：MAIL_PASS，對齊Render入面嘅key名】
 DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY")
 API_URL = "https://api.deepseek.com/v1/chat/completions"
 MONGODB_URI = os.environ.get("MONGODB_URI")
 JWT_SECRET_KEY = os.environ.get("JWT_SECRET_KEY")
 EMAIL_SENDER = os.environ.get("EMAIL_SENDER")
-EMAIL_PASS = os.environ.get("EMAIL_PASS")
+EMAIL_PASS = os.environ.get("MAIL_PASS")
 
 # MongoDB連接
 client = MongoClient(MONGODB_URI)
