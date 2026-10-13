@@ -280,27 +280,29 @@ def edit_dream_tags(dream_id):
     return jsonify({"success":True, "message":"標籤更新成功"}),200
 
 
-# ====================== 會員 AUTH 全套接口（SMTP郵件版本） ======================
+# ====================== 會員 AUTH 全套接口（SMTP郵件【除錯版】） ======================
 import hashlib
 def hash_password(raw_pw):
     return hashlib.sha256(raw_pw.encode("utf-8")).hexdigest()
 
-# SMTP發送郵件函數
+# ✅ 更新咗除錯版 send_email，會喺Render log印詳細錯誤
 def send_email(to_email, subject, body):
     if not EMAIL_SENDER or not EMAIL_PASS:
-        print("缺少SMTP郵箱設定")
+        print("[SMTP] 缺少 EMAIL_SENDER / EMAIL_PASS")
         return False
     try:
         msg = MIMEText(body, "plain", "utf-8")
         msg["Subject"] = subject
         msg["From"] = EMAIL_SENDER
         msg["To"] = to_email
+        print(f"[SMTP] 嘗試發送: {to_email}")
         with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT) as server:
             server.login(EMAIL_SENDER, EMAIL_PASS)
             server.send_message(msg)
+        print("[SMTP] 發送成功")
         return True
     except Exception as e:
-        print("SMTP發信錯誤：", str(e))
+        print("[SMTP ERROR]", repr(e))
         return False
 
 # 1. POST /auth/send-code 發送註冊驗證碼
