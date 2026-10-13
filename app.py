@@ -13,10 +13,16 @@ from email.mime.text import MIMEText
 from bson import ObjectId
 
 app = Flask(__name__)
-CORS(app, origins=[
-    "https://dreamofwisdom.com",
-    "https://www.dreamofwisdom.com"
-])
+# ========== 修改咗CORS呢一段，加入supports_credentials同允許Authorization header ==========
+CORS(app,
+     origins=[
+         "https://dreamofwisdom.com",
+         "https://www.dreamofwisdom.com"
+     ],
+     supports_credentials=True,
+     allow_headers=["Content-Type", "Authorization"],
+     methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"]
+)
 
 # 環境變數
 DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY")
@@ -153,7 +159,7 @@ def delete_dream_record(current_user_id, record_id):
         return jsonify({"message": "記錄不存在或者唔屬於你"}),404
     return jsonify({"message": "刪除成功"})
 
-# ========== 新增全套Auth註冊登入接口（存MongoDB，唔係記憶體） ==========
+# ========== 全套Auth註冊登入接口 ==========
 @app.route("/send-register-code", methods=["POST"])
 def send_register_code():
     data = request.get_json()
