@@ -51,6 +51,7 @@ def get_db_collections():
         verify_col = db["verify_codes"]
     return dream_col, user_col, verify_col
 
+# ========== 【共用工具｜將來分拆，兩個後端都要複製呢段】 ==========
 # JWT 驗證裝飾器
 def token_required(func):
     def wrapper(*args, **kwargs):
@@ -68,7 +69,10 @@ def token_required(func):
         return func(current_user_id, *args, **kwargs)
     wrapper.__name__ = func.__name__
     return wrapper
+# ====================================================================
 
+
+# ========== 【AUTH模組｜日後整段 CUT 去 DreamofWisdom-Auth 獨立後端】 ==========
 # 發送驗證碼郵件函數（SMTP_SSL 465 保留你原本寫法）
 def send_email(to_email, code):
     msg = MIMEText(f"你的DreamOfWisdom驗證碼：{code}\n有效期15分鐘", "plain", "utf-8")
@@ -79,104 +83,7 @@ def send_email(to_email, code):
         server.login(EMAIL_SENDER, EMAIL_PASS)
         server.send_message(msg)
 
-# ========== 原有解夢 & 夢境紀錄接口（全部加 /api） ==========
-@app.route("/api/analyze", methods=["POST"])
-def analyze_dream():
-    dream_col, _, _ = get_db_collections()
-    data = request.get_json()
-    dream_content = data.get("dreamContent")
-    if not dream_content:
-        return jsonify({"message": "請輸入夢境內容"}), 400
 
-    messages = [
-        {
-            "role": "system",
-            "content": "你係專業解夢師，融合四大心理學派（精神分析、榮格、認知、完形），溫和療癒，輸出清晰結構化解夢報告"
-        },
-        {"role": "user", "content": dream_content}
-    ]
-    payload = {
-        "model": "deepseek-chat",
-        "messages": messages,
-        "temperature": 0.7
-    }
-    headers = {
-        "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
-        "Content-Type": "application/json"
-    }
-    resp = requests.post(API_URL, headers=headers, json=payload, timeout=30)
-    if resp.status_code != 200:
-        return jsonify({"message": "DeepSeek API錯誤", "detail": resp.text}), 500
-    return jsonify(resp.json())
-
-
-@app.route("/api/dream-record", methods=["POST"])
-@token_required
-def save_dream_record(current_user_id):
-    dream_col, _, _ = get_db_collections()
-    data = request.get_json()
-    record = {
-        "user_id": current_user_id,
-        "dreamContent": data.get("dreamContent", ""),
-        "analysis": data.get("analysis", ""),
-        "tags": data.get("tags", []),
-        "createdAt": datetime.utcnow()
-    }
-    res = dream_col.insert_one(record)
-    return jsonify({
-        "_id": str(res.inserted_id),
-        "message": "儲存成功"
-    }), 201
-
-
-@app.route("/api/dream-records", methods=["GET"])
-@token_required
-def get_dream_records(current_user_id):
-    dream_col, _, _ = get_db_collections()
-    records = list(dream_col.find({"user_id": current_user_id}).sort("createdAt", -1))
-    for r in records:
-        r["_id"] = str(r["_id"])
-    return jsonify(records)
-
-
-@app.route("/api/dream-record/<record_id>", methods=["PUT"])
-@token_required
-def update_dream_record(current_user_id, record_id):
-    dream_col, _, _ = get_db_collections()
-    try:
-        obj_id = ObjectId(record_id)
-    except:
-        return jsonify({"message": "ID格式錯誤"}),400
-    data = request.get_json()
-    update_data = {
-        "dreamContent": data.get("dreamContent"),
-        "analysis": data.get("analysis"),
-        "tags": data.get("tags", []),
-        "updatedAt": datetime.utcnow()
-    }
-    result = dream_col.update_one(
-        {"_id": obj_id, "user_id": current_user_id},
-        {"$set": update_data}
-    )
-    if result.matched_count == 0:
-        return jsonify({"message": "記錄不存在或者唔屬於你"}),404
-    return jsonify({"message":"更新成功"})
-
-
-@app.route("/api/dream-record/<record_id>", methods=["DELETE"])
-@token_required
-def delete_dream_record(current_user_id, record_id):
-    dream_col, _, _ = get_db_collections()
-    try:
-        obj_id = ObjectId(record_id)
-    except:
-        return jsonify({"message": "ID格式錯誤"}),400
-    result = dream_col.delete_one({"_id": obj_id, "user_id": current_user_id})
-    if result.deleted_count == 0:
-        return jsonify({"message": "記錄不存在或者唔屬於你"}),404
-    return jsonify({"message": "刪除成功"})
-
-# ========== 全套Auth註冊登入接口（全部加 /api） ==========
 @app.route("/api/send-register-code", methods=["POST"])
 def send_register_code():
     _, user_col, verify_col = get_db_collections()
@@ -312,6 +219,107 @@ def test_email():
         return jsonify({"ok":True, "message":"測試郵件已送出"})
     except Exception as e:
         return jsonify({"ok":False, "error":str(e)}),500
+# ====================================================================
+
+
+# ========== 【DREAM主模組｜永久保留係 dream-api 後端，唔搬】 ==========
+@app.route("/api/analyze", methods=["POST"])
+def analyze_dream():
+    dream_col, _, _ = get_db_collections()
+    data = request.get_json()
+    dream_content = data.get("dreamContent")
+    if not dream_content:
+        return jsonify({"message": "請輸入夢境內容"}), 400
+
+    messages = [
+        {
+            "role": "system",
+            "content": "你係專業解夢師，融合四大心理學派（精神分析、榮格、認知、完形），溫和療癒，輸出清晰結構化解夢報告"
+        },
+        {"role": "user", "content": dream_content}
+    ]
+    payload = {
+        "model": "deepseek-chat",
+        "messages": messages,
+        "temperature": 0.7
+    }
+    headers = {
+        "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
+        "Content-Type": "application/json"
+    }
+    resp = requests.post(API_URL, headers=headers, json=payload, timeout=30)
+    if resp.status_code != 200:
+        return jsonify({"message": "DeepSeek API錯誤", "detail": resp.text}), 500
+    return jsonify(resp.json())
+
+
+@app.route("/api/dream-record", methods=["POST"])
+@token_required
+def save_dream_record(current_user_id):
+    dream_col, _, _ = get_db_collections()
+    data = request.get_json()
+    record = {
+        "user_id": current_user_id,
+        "dreamContent": data.get("dreamContent", ""),
+        "analysis": data.get("analysis", ""),
+        "tags": data.get("tags", []),
+        "createdAt": datetime.utcnow()
+    }
+    res = dream_col.insert_one(record)
+    return jsonify({
+        "_id": str(res.inserted_id),
+        "message": "儲存成功"
+    }), 201
+
+
+@app.route("/api/dream-records", methods=["GET"])
+@token_required
+def get_dream_records(current_user_id):
+    dream_col, _, _ = get_db_collections()
+    records = list(dream_col.find({"user_id": current_user_id}).sort("createdAt", -1))
+    for r in records:
+        r["_id"] = str(r["_id"])
+    return jsonify(records)
+
+
+@app.route("/api/dream-record/<record_id>", methods=["PUT"])
+@token_required
+def update_dream_record(current_user_id, record_id):
+    dream_col, _, _ = get_db_collections()
+    try:
+        obj_id = ObjectId(record_id)
+    except:
+        return jsonify({"message": "ID格式錯誤"}),400
+    data = request.get_json()
+    update_data = {
+        "dreamContent": data.get("dreamContent"),
+        "analysis": data.get("analysis"),
+        "tags": data.get("tags", []),
+        "updatedAt": datetime.utcnow()
+    }
+    result = dream_col.update_one(
+        {"_id": obj_id, "user_id": current_user_id},
+        {"$set": update_data}
+    )
+    if result.matched_count == 0:
+        return jsonify({"message": "記錄不存在或者唔屬於你"}),404
+    return jsonify({"message":"更新成功"})
+
+
+@app.route("/api/dream-record/<record_id>", methods=["DELETE"])
+@token_required
+def delete_dream_record(current_user_id, record_id):
+    dream_col, _, _ = get_db_collections()
+    try:
+        obj_id = ObjectId(record_id)
+    except:
+        return jsonify({"message": "ID格式錯誤"}),400
+    result = dream_col.delete_one({"_id": obj_id, "user_id": current_user_id})
+    if result.deleted_count == 0:
+        return jsonify({"message": "記錄不存在或者唔屬於你"}),404
+    return jsonify({"message": "刪除成功"})
+# ====================================================================
+
 
 @app.route("/", methods=["GET"])
 def root():
