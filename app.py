@@ -26,7 +26,7 @@ CORS(app,
      methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"]
 )
 
-# 環境變數
+# 環境變數【重點對齊你Render入面嘅名：EMAIL_SENDER、MAIL_PASS】
 DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY")
 API_URL = "https://api.deepseek.com/v1/chat/completions"
 MONGODB_URI = os.environ.get("MONGODB_URI")
@@ -73,15 +73,17 @@ def token_required(func):
 
 
 # ========== 【AUTH模組｜日後整段 CUT 去 DreamofWisdom-Auth 獨立後端】 ==========
-# 發送驗證碼郵件函數（SMTP_SSL 465 保留你原本寫法）
+# 發送驗證碼郵件函數｜保留 SMTP_SSL 465 + 加詳細log，方便Render查錯
 def send_email(to_email, code):
     msg = MIMEText(f"你的DreamOfWisdom驗證碼：{code}\n有效期15分鐘", "plain", "utf-8")
     msg["Subject"] = "DreamOfWisdom 驗證碼"
     msg["From"] = EMAIL_SENDER
     msg["To"] = to_email
+    print(f"[SMTP嘗試寄信] 寄件人:{EMAIL_SENDER}, 收件人:{to_email}")
     with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=10) as server:
         server.login(EMAIL_SENDER, EMAIL_PASS)
         server.send_message(msg)
+    print(f"[SMTP成功] 已寄出驗證碼到 {to_email}")
 
 
 @app.route("/api/send-register-code", methods=["POST"])
@@ -108,7 +110,7 @@ def send_register_code():
     try:
         send_email(email, code)
     except Exception as e:
-        print("send mail error", str(e))
+        print("[send_register_code 錯誤]", str(e))
         return jsonify({"message":"發送電郵失敗，檢查SMTP設定"}),500
     return jsonify({"message":"驗證碼已發送到你的電郵"})
 
@@ -188,7 +190,7 @@ def send_reset_code():
     try:
         send_email(email, code)
     except Exception as e:
-        print("reset mail error", str(e))
+        print("[send_reset_code 錯誤]", str(e))
         return jsonify({"message":"發送電郵失敗"}),500
     return jsonify({"message":"重設密碼驗證碼已發送"})
 
@@ -218,6 +220,7 @@ def test_email():
         send_email(EMAIL_SENDER, "123456")
         return jsonify({"ok":True, "message":"測試郵件已送出"})
     except Exception as e:
+        print("[test-email 錯誤]", str(e))
         return jsonify({"ok":False, "error":str(e)}),500
 # ====================================================================
 
