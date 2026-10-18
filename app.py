@@ -26,15 +26,15 @@ CORS(app,
      methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"]
 )
 
-# 環境變數【重點對齊你Render入面嘅名：EMAIL_SENDER、MAIL_PASS】
+# 環境變數【完全對齊Render：EMAIL_SENDER、EMAIL_PASS】
 DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY")
 API_URL = "https://api.deepseek.com/v1/chat/completions"
 MONGODB_URI = os.environ.get("MONGODB_URI")
 JWT_SECRET_KEY = os.environ.get("JWT_SECRET_KEY")
 EMAIL_SENDER = os.environ.get("EMAIL_SENDER")
-EMAIL_PASS = os.environ.get("MAIL_PASS")
+EMAIL_PASS = os.environ.get("EMAIL_PASS")
 
-# ===== 改動重點：延遲連Mongo，唔係開機就連，減少開機RAM消耗 =====
+# ===== 延遲連Mongo，減少開機RAM消耗 =====
 client = None
 db = None
 dream_col = None
@@ -51,8 +51,7 @@ def get_db_collections():
         verify_col = db["verify_codes"]
     return dream_col, user_col, verify_col
 
-# ========== 【共用工具｜將來分拆，兩個後端都要複製呢段】 ==========
-# JWT 驗證裝飾器
+# ========== 共用工具｜日後分拆AUTH服務都要複製 ==========
 def token_required(func):
     def wrapper(*args, **kwargs):
         auth_header = request.headers.get("Authorization")
@@ -72,8 +71,7 @@ def token_required(func):
 # ====================================================================
 
 
-# ========== 【AUTH模組｜日後整段 CUT 去 DreamofWisdom-Auth 獨立後端】 ==========
-# 發送驗證碼郵件函數｜保留 SMTP_SSL 465 + 加詳細log，方便Render查錯
+# ========== AUTH模組｜之後整段cut去DreamofWisdom-Auth ==========
 def send_email(to_email, code):
     msg = MIMEText(f"你的DreamOfWisdom驗證碼：{code}\n有效期15分鐘", "plain", "utf-8")
     msg["Subject"] = "DreamOfWisdom 驗證碼"
@@ -94,14 +92,11 @@ def send_register_code():
     password = data.get("password","")
     if not email or len(password) < 6:
         return jsonify({"message":"電郵必填，密碼最少6位"}),400
-    # 檢查用戶是否已存在
     if user_col.find_one({"email":email}):
         return jsonify({"message":"此電郵已經註冊"}),400
-    # 生成6位驗證碼
     import random
     code = str(random.randint(100000,999999))
     expire = datetime.utcnow().timestamp() + 15*60
-    # 覆蓋舊驗證碼
     verify_col.delete_many({"email":email, "type":"register"})
     verify_col.insert_one({
         "email":email, "code":code, "expire":expire, "type":"register",
@@ -124,7 +119,6 @@ def verify_register():
     item = verify_col.find_one({"email":email, "code":code, "type":"register"})
     if not item or datetime.utcnow().timestamp() > item["expire"]:
         return jsonify({"message":"驗證碼無效或已過期"}),400
-    # passlib 加密
     hash_pw = pwd_context.hash(item["password"])
     user_col.insert_one({
         "email":email,
@@ -213,7 +207,6 @@ def reset_password():
     return jsonify({"message":"密碼重設成功"})
 
 
-# 測試SMTP郵件接口
 @app.route("/api/test-email", methods=["GET"])
 def test_email():
     try:
@@ -225,7 +218,7 @@ def test_email():
 # ====================================================================
 
 
-# ========== 【DREAM主模組｜永久保留係 dream-api 後端，唔搬】 ==========
+# ========== DREAM主模組｜永久留係dream-api後端 ==========
 @app.route("/api/analyze", methods=["POST"])
 def analyze_dream():
     dream_col, _, _ = get_db_collections()
